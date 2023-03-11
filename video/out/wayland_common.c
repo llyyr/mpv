@@ -1362,8 +1362,8 @@ static void frame_callback(void *data, struct wl_callback *callback, uint32_t ti
         wp_presentation_feedback_add_listener(fback, &feedback_listener, wl->fback_pool);
     }
 
-    wl->frame_wait = false;
-    wl->hidden = false;
+    if (!vo_render_frame_external(wl->vo))
+        wl_surface_commit(wl->callback_surface);
 }
 
 static const struct wl_callback_listener frame_listener = {
@@ -2605,14 +2605,6 @@ int vo_wayland_allocate_memfd(struct vo *vo, size_t size)
 #endif
 }
 
-bool vo_wayland_check_visible(struct vo *vo)
-{
-    struct vo_wayland_state *wl = vo->wl;
-    bool render = !wl->hidden || wl->opts->force_render;
-    wl->frame_wait = true;
-    return render;
-}
-
 int vo_wayland_control(struct vo *vo, int *events, int request, void *arg)
 {
     struct vo_wayland_state *wl = vo->wl;
@@ -2625,7 +2617,6 @@ int vo_wayland_control(struct vo *vo, int *events, int request, void *arg)
         *events |= wl->pending_vo_events;
         if (*events & VO_EVENT_RESIZE) {
             *events |= VO_EVENT_EXPOSE;
-            wl->frame_wait = false;
             wl->timeout_count = 0;
             wl->hidden = false;
         }
@@ -2687,6 +2678,17 @@ int vo_wayland_control(struct vo *vo, int *events, int request, void *arg)
     }
     case VOCTRL_GET_DISPLAY_NAMES: {
         *(char ***)arg = get_displays_spanned(wl);
+        return VO_TRUE;
+    }
+    case VOCTRL_PAUSE: {
+        wl_callback_destroy(wl->frame_callback);
+        wl->frame_callback = NULL;
+        vo_disable_external_renderloop(wl->vo);
+        return VO_TRUE;
+    }
+    case VOCTRL_RESUME: {
+        vo_enable_external_renderloop(wl->vo);
+        frame_callback(wl, NULL, 0);
         return VO_TRUE;
     }
     case VOCTRL_GET_UNFS_WINDOW_SIZE: {
@@ -2955,6 +2957,7 @@ bool vo_wayland_init(struct vo *vo)
     mp_make_wakeup_pipe(wl->wakeup_pipe);
 
     wl->callback_surface = using_dmabuf_wayland ? wl->video_surface : wl->surface;
+    vo_enable_external_renderloop(wl->vo);
     wl->frame_callback = wl_surface_frame(wl->callback_surface);
     wl_callback_add_listener(wl->frame_callback, &frame_listener, wl);
     wl_surface_commit(wl->surface);
@@ -3173,61 +3176,6 @@ void vo_wayland_uninit(struct vo *vo)
         close(wl->wakeup_pipe[n]);
     talloc_free(wl);
     vo->wl = NULL;
-}
-
-void vo_wayland_wait_frame(struct vo_wayland_state *wl)
-{
-    int64_t vblank_time = 0;
-    /* We need some vblank interval to use for the timeout in
-     * this function. The order of preference of values to use is:
-     * 1. vsync duration from presentation time
-     * 2. refresh interval reported by presentation time
-     * 3. refresh rate of the output reported by the compositor
-     * 4. make up crap if vblank_time is still <= 0 (better than nothing) */
-
-    if (wl->use_present && wl->present->head)
-        vblank_time = wl->present->head->vsync_duration;
-
-    if (vblank_time <= 0 && wl->refresh_interval > 0)
-        vblank_time = wl->refresh_interval;
-
-    if (vblank_time <= 0 && wl->current_output->refresh_rate > 0)
-        vblank_time = 1e9 / wl->current_output->refresh_rate;
-
-    // Ideally you should never reach this point.
-    if (vblank_time <= 0)
-        vblank_time = 1e9 / 60;
-
-    // Completely arbitrary amount of additional time to wait.
-    vblank_time += 0.05 * vblank_time;
-    int64_t finish_time = mp_time_ns() + vblank_time;
-
-    while (wl->frame_wait && finish_time > mp_time_ns()) {
-        int64_t poll_time = finish_time - mp_time_ns();
-        if (poll_time < 0) {
-            poll_time = 0;
-        }
-        wayland_dispatch_events(wl, 1, poll_time);
-    }
-
-    /* If the compositor does not have presentation time, we cannot be sure
-     * that this wait is accurate. Do a hacky block with wl_display_roundtrip. */
-    if (!wl->use_present && !wl_display_get_error(wl->display))
-        wl_display_roundtrip(wl->display);
-
-    /* Only use this heuristic if the compositor doesn't support the suspended state. */
-    if (wl->frame_wait && xdg_toplevel_get_version(wl->xdg_toplevel) < 6) {
-        // Only consider consecutive missed callbacks.
-        if (wl->timeout_count > 1) {
-            wl->hidden = true;
-            return;
-        } else {
-            wl->timeout_count += 1;
-            return;
-        }
-    }
-
-    wl->timeout_count = 0;
 }
 
 void vo_wayland_wait_events(struct vo *vo, int64_t until_time_ns)

@@ -1515,7 +1515,7 @@ static int control(struct vo *vo, uint32_t request, void *data)
     case VOCTRL_PAUSE:
         if (p->is_interpolated)
             vo->want_redraw = true;
-        return VO_TRUE;
+        break;
 
     case VOCTRL_UPDATE_RENDER_OPTS: {
         update_ra_ctx_options(vo, &p->ra_ctx->opts);

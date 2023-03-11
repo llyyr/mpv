@@ -140,6 +140,8 @@ struct vo_internal {
 
     double nominal_vsync_interval;
 
+    bool external_renderloop_drive;
+
     double vsync_interval;
     int64_t *vsync_samples;
     int num_vsync_samples;
@@ -877,11 +879,12 @@ static void wait_until(struct vo *vo, int64_t target)
     mp_mutex_unlock(&in->lock);
 }
 
-static bool render_frame(struct vo *vo)
+bool vo_render_frame_external(struct vo *vo)
 {
     struct vo_internal *in = vo->in;
     struct vo_frame *frame = NULL;
     bool more_frames = false;
+    bool flipped = false;
 
     update_display_fps(vo);
 
@@ -956,6 +959,7 @@ static bool render_frame(struct vo *vo)
         in->drop_count += 1;
         wakeup_core(vo);
     } else {
+        flipped = true;
         in->rendering = true;
         in->hasframe_rendered = true;
         int64_t prev_drop_count = vo->in->drop_count;
@@ -1031,6 +1035,8 @@ done:
     if (!vo->driver->frame_owner || in->dropped_frame)
         talloc_free(frame);
     mp_mutex_unlock(&in->lock);
+    if (in->external_renderloop_drive)
+        return flipped;
 
     return more_frames;
 }
@@ -1065,6 +1071,44 @@ static void do_redraw(struct vo *vo)
 
     if (frame != &dummy && !vo->driver->frame_owner)
         talloc_free(frame);
+}
+
+static void drop_unrendered_frame(struct vo *vo)
+{
+    struct vo_internal *in = vo->in;
+
+    mp_mutex_lock(&in->lock);
+
+    if (!in->frame_queued)
+        goto end;
+
+    if ((in->frame_queued->pts + in->frame_queued->duration) > mp_time_ns())
+        goto end;
+
+    MP_VERBOSE(vo, "Dropping unrendered frame (pts %"PRId64")\n", in->frame_queued->pts);
+
+    talloc_free(in->frame_queued);
+    in->frame_queued = NULL;
+    in->hasframe = false;
+    mp_cond_broadcast(&in->wakeup);
+    wakeup_core(vo);
+
+end:
+    mp_mutex_unlock(&in->lock);
+}
+
+void vo_enable_external_renderloop(struct vo *vo)
+{
+    struct vo_internal *in = vo->in;
+    MP_VERBOSE(vo, "Enabling event driven renderloop!\n");
+    in->external_renderloop_drive = true;
+}
+
+void vo_disable_external_renderloop(struct vo *vo)
+{
+    struct vo_internal *in = vo->in;
+    MP_VERBOSE(vo, "Disabling event driven renderloop!\n");
+    in->external_renderloop_drive = false;
 }
 
 static struct mp_image *get_image_vo(void *ctx, int imgfmt, int w, int h,
@@ -1102,11 +1146,15 @@ static MP_THREAD_VOID vo_thread(void *ptr)
             break;
         stats_event(in->stats, "iterations");
         vo->driver->control(vo, VOCTRL_CHECK_EVENTS, NULL);
-        bool working = render_frame(vo);
-        int64_t now = mp_time_ns();
-        int64_t wait_until = now + MP_TIME_S_TO_NS(working ? 0 : 1000);
         bool wakeup_on_done = false;
         int64_t wakeup_core_after = 0;
+        bool working = false;
+        if (!in->external_renderloop_drive || !in->hasframe_rendered)
+            working = vo_render_frame_external(vo);
+        else
+            drop_unrendered_frame(vo);
+        int64_t now = mp_time_ns();
+        int64_t wait_until = now + MP_TIME_S_TO_NS(working ? 0 : 1000);
 
         mp_mutex_lock(&in->lock);
         if (in->wakeup_pts) {
