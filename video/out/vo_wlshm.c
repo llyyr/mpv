@@ -246,10 +246,6 @@ static void draw_frame(struct vo *vo, struct vo_frame *frame)
     struct mp_image *src = frame->current;
     struct buffer *buf;
 
-    bool render = vo_wayland_check_visible(vo);
-    if (!render)
-        return;
-
     buf = p->free_buffers;
     if (buf) {
         p->free_buffers = buf->next;
@@ -298,9 +294,6 @@ static void flip_page(struct vo *vo)
     wl_surface_damage_buffer(wl->surface, 0, 0, vo->dwidth,
                              vo->dheight);
     wl_surface_commit(wl->surface);
-
-    if (!wl->opts->wl_disable_vsync)
-        vo_wayland_wait_frame(wl);
 
     if (wl->use_present)
         present_sync_swap(wl->present);
