@@ -179,7 +179,7 @@ void update_content_type(struct MPContext *mpctx, struct track *track)
     enum mp_content_type content_type;
     if (!track || !track->vo_c) {
         content_type = MP_CONTENT_NONE;
-    } else if (track->image) {
+    } else if (track->image || track->attached_picture) {
         content_type = MP_CONTENT_IMAGE;
     } else {
         content_type = MP_CONTENT_VIDEO;
