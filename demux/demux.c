@@ -4108,9 +4108,10 @@ static void demuxer_sort_chapters(demuxer_t *demuxer)
 int demuxer_add_chapter(demuxer_t *demuxer, char *name,
                         double pts, uint64_t demuxer_id)
 {
+    struct demux_internal *in = demuxer->in;
     struct demux_chapter new = {
         .original_index = demuxer->num_chapters,
-        .pts = pts,
+        .pts = pts - in->ts_offset,
         .metadata = talloc_zero(demuxer, struct mp_tags),
         .demuxer_id = demuxer_id,
     };
