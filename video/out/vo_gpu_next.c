@@ -1456,6 +1456,8 @@ static void flip_page(struct vo *vo)
     struct ra_swapchain *sw = p->ra_ctx->swapchain;
 
     if (p->frame_pending) {
+        if (sw->fns->wait_color)
+            sw->fns->wait_color(sw);
         if (!pl_swapchain_submit_frame(p->sw))
             MP_ERR(vo, "Failed presenting frame!\n");
         p->frame_pending = false;

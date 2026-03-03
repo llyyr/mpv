@@ -557,6 +557,13 @@ static bool set_color(struct ra_swapchain *sw, struct mp_image_params *params)
     return false;
 }
 
+static void wait_color(struct ra_swapchain *sw)
+{
+    struct priv *p = sw->priv;
+    if (p->params.dispatch_color_queue)
+        p->params.dispatch_color_queue(sw->ctx);
+}
+
 static pl_color_space_t target_csp(struct ra_swapchain *sw)
 {
     struct priv *p = sw->priv;
@@ -568,6 +575,7 @@ static pl_color_space_t target_csp(struct ra_swapchain *sw)
 static const struct ra_swapchain_fns vulkan_swapchain = {
     .color_depth   = color_depth,
     .set_color     = set_color,
+    .wait_color    = wait_color,
     .target_csp    = target_csp,
     .start_frame   = start_frame,
     .submit_frame  = submit_frame,

@@ -3600,6 +3600,7 @@ static void set_color_management(struct vo_wayland_state *wl, struct pl_color_sp
         wp_image_description_creator_params_v1_set_max_fall(image_creator_params, lrintf(hdr.max_fall));
     }
     struct wp_image_description_v1 *image_description = wp_image_description_creator_params_v1_create(image_creator_params);
+    wl_proxy_set_queue((struct wl_proxy *)image_description, wl->color_queue);
     wl->image_description_pending = true;
     wp_image_description_v1_add_listener(image_description, &image_description_listener, wl);
     return;
@@ -4267,6 +4268,8 @@ void vo_wayland_handle_color(struct vo_wayland_state *wl, struct mp_image_params
     }
     if (!wl->color_surface)
         wl->color_surface = wp_color_manager_v1_get_surface(wl->color_manager, wl->callback_surface);
+    if (!wl->color_queue)
+        wl->color_queue = wl_display_create_queue_with_name(wl->display, "image description creator create");
 #endif
 
     bool color_space_changed = !pl_color_space_equal(&wl->current_params.color, &params->color);
@@ -4282,6 +4285,11 @@ void vo_wayland_handle_color(struct vo_wayland_state *wl, struct mp_image_params
     wl->current_params = *params;
 }
 
+void vo_wayland_dispatch_color_queue(struct vo_wayland_state *wl) {
+    while (wl->image_description_pending)
+        if (wl_display_dispatch_queue(wl->display, wl->color_queue) < 0)
+            break;
+}
 
 void vo_wayland_handle_scale(struct vo_wayland_state *wl)
 {
@@ -4620,6 +4628,9 @@ void vo_wayland_uninit(struct vo *vo)
 
     if (wl->color_surface)
         wp_color_management_surface_v1_destroy(wl->color_surface);
+
+    if (wl->color_queue)
+        wl_event_queue_destroy(wl->color_queue);
 
     if (wl->color_surface_feedback)
         wp_color_management_surface_feedback_v1_destroy(wl->color_surface_feedback);

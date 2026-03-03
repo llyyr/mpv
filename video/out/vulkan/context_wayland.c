@@ -36,6 +36,12 @@ static int wayland_vk_color_depth(struct ra_ctx *ctx)
     return wl->color_manager ? 0 : 8;
 }
 
+static void wayland_vk_dispatch_color_queue(struct ra_ctx *ctx)
+{
+    struct vo_wayland_state *wl = ctx->vo->wl;
+    vo_wayland_dispatch_color_queue(wl);
+}
+
 static bool wayland_vk_check_visible(struct ra_ctx *ctx)
 {
     return vo_wayland_check_visible(ctx->vo);
@@ -100,6 +106,7 @@ static bool wayland_vk_init(struct ra_ctx *ctx)
 
     struct ra_ctx_params params = {
         .color_depth = wayland_vk_color_depth,
+        .dispatch_color_queue = wayland_vk_dispatch_color_queue,
         .check_visible = wayland_vk_check_visible,
         .preferred_csp = wayland_vk_preferred_csp,
         .set_color    = wayland_vk_set_color,

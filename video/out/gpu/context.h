@@ -71,6 +71,9 @@ struct ra_ctx_params {
     // before drawing a frame.
     bool (*check_visible)(struct ra_ctx *ctx);
 
+    // See ra_swapchain_fns.wait_color
+    void (*dispatch_color_queue)(struct ra_ctx *ctx);
+
     // See ra_swapchain_fns.color_depth.
     int (*color_depth)(struct ra_ctx *ctx);
 
@@ -118,6 +121,10 @@ struct ra_swapchain_fns {
     // Call into backends so they can use the appropriate platform-specific
     // functions to configure color spaces. Returns true if request was handled.
     bool (*set_color)(struct ra_swapchain *sw, struct mp_image_params *params);
+
+    // For special contexts (i.e. wayland) that require a wait after set_color
+    // before doing a page flip.
+    void (*wait_color)(struct ra_swapchain *sw);
 
     // Called when rendering starts. Returns NULL on failure. This must be
     // followed by submit_frame, to submit the rendered frame. This function
